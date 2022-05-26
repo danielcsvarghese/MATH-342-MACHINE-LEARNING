@@ -1,0 +1,117 @@
+---
+title: "Final Project"
+author: "Daniel Varghese"
+date: "5/25/2022"
+output: pdf_document
+---
+
+
+
+house_data = read.csv("housing_data_2016_2017.csv")
+
+## Clean the Data
+
+```
+house_data %<>%
+  select(-c(HITId, HITTypeld, Keywords, NumberofSimilarHITs, LifetimeInSeconds, AssignmentId, WorkerId, AssignmentStatus, RejectionTime, RejectionFeedback, url))
+```***inspired by a line I saw here: https://github.com/ssalim5/Housing-Project/blob/master/final.Rmd but I went through Excel and chose columns I thought could be deleted because they were unnecessary and are not related to the actual sale price like the url for example.
+
+house_data %<>%
+  mutate( zip_code = str_extract(full_address_or_zip_code, "[0-9]{5}")) 
+  mutate(dogs_allowed = ifelse(substr(housing_data$dogs_allowed, 1, 3) == "yes", 1, 0)) %>%
+  mutate(cats_allowed = ifelse(substr(housing_data$cats_allowed, 1, 3) == "yes", 1, 0)) %>%
+  
+  **I used this code from https://github.com/ssalim5/Housing-Project/blob/master/final because after viewing it I realized that it was a meaningful way to represent and the presence of dogs or cats in terms of 1s and 0s as opposed to saying "yes" or no.
+  So I then applied that same reasoning to other features.
+  
+  mutate(pct_tax_deductible) = ifelse(substr(housing_data$pct_tax_deductible, 1, 2) == "NA", 0, 1)) %>%
+  **We can take the pct_tax_deductible data and reduce it to a binary relationship rather than seeking to utilize a complex statistic about what the percent tax deductible would be.
+
+
+#Dealing with Missingness
+
+
+```{r}
+house_data %<>%
+  select_if(is.numeric) %>%
+  select(sales_price, everything())
+```
+
+
+
+```{r}
+b = house_data$sales_price
+A = house_data %>% 
+  select(-sales_price)
+rm(apts)
+```
+
+
+```{r}
+E = as_tibble(apply(is.na(A), 2, as.numeric))
+colnames(E) = paste("is_missing_", colnames(A), sep = "")
+E%<>% 
+  select_if(function(a){sum(a) > 0})
+head(E)
+skim(E)
+```
+
+```{r}
+E = as_tibble(t(unique(t(E))))
+skim(E)
+```
+
+
+```{r}
+lin_mod_listwise_deletion = lm(b ~ ., A)
+summary(lin_mod_listwise_deletion)
+```
+
+```{r}
+pacman::p_load(missForest)
+Aimp = missForest(data.frame(A), sampsize = rep(2200, ncol(A)))$ximp
+skim(Aimp)
+```
+
+```{r}
+linear_mod_impute = lm(b ~ ., Aimp)
+summary(linear_mod_impute)
+```
+
+```{r}
+Aimp_and_missing_dummies = data.frame(cbind(Aimp, E))
+linear_mod_impute_and_missing_dummies = lm(b ~ ., Aimp_and_missing_dummies)
+summary(linear_mod_impute_and_missing_dummies)
+```
+
+
+```{r}
+A %<>% mutate(Rooms = as.numeric(Rooms))
+Anaive = A %>%
+ replace_na(as.list(colMeans(A, na.rm = TRUE)))
+linear_mod_naive_without_missing_dummies = lm(b ~ ., Anaive)
+summary(linear_mod_naive_without_missing_dummies)
+```
+
+*The above code is taken from Professor's Kapelner's notes on Week 12 and modified to fit this problem.
+
+##Linear Regression
+
+```{r}
+lr = lm(Btrain ~ ., data = Atrain)
+```
+
+This code above is based on this https://github.com/ssalim5/Housing-Project/blob/master/final.Rmd. 
+A linear regression model seeks to decrease error while creating a line of best fit for the data.
+
+
+## Random Forest
+num_trees = 700
+yarf_mod = YARF(A_train, b_train, num_trees = num_trees, calculate_oob_error = FALSE)
+b_hat_test = predict(yarf_mod, A_test)
+oos_confusion = table(b_test, b_hat_test)
+oos_confusion
+cat("FDR =", oos_confsion[1, 2] / sum(oos_confsion[, 2]), "\n")
+cat("FOR =", oos_confsion[2, 1] / sum(oos_confsion[, 1]), "\n")
+
+
